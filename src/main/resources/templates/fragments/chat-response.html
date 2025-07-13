@@ -1,0 +1,9 @@
+<div th:fragment="chat-response" class="ai-message-container">
+    <div class="ai-message">
+        <div class="message-avatar">🤖</div>
+        <div class="message-content">
+            <div class="message-text markdown-content" th:utext="${htmlResponse}"></div>
+            <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
+        </div>
+    </div>
+</div>

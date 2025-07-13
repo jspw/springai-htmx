@@ -1,0 +1,9 @@
+<div th:fragment="chat-error" class="ai-message-container error">
+    <div class="ai-message">
+        <div class="message-avatar">⚠️</div>
+        <div class="message-content">
+            <div class="message-text error-text" th:text="${error}"></div>
+            <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
+        </div>
+    </div>
+</div>

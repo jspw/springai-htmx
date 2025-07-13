@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTMX Chat Demo</title>
+
+    <!-- Include HTMX from CDN -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- External CSS -->
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+
+    <!-- Custom JavaScript for enhanced form behavior -->
+    <script>
+        function addUserMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const chatMessages = document.getElementById('chatMessages');
+            const userMessage = messageInput.value.trim();
+
+            if (userMessage) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'user-message-container';
+                messageDiv.innerHTML = `
+                    <div class="user-message">
+                        <div class="message-avatar">👤</div>
+                        <div class="message-content">
+                            <div class="message-text">${escapeHtml(userMessage)}</div>
+                            <div class="message-time">${getCurrentTime()}</div>
+                        </div>
+                    </div>
+                `;
+                chatMessages.appendChild(messageDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function getCurrentTime() {
+            return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function addAiMessage() {
+            const chatMessages = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'ai-message-container';
+            messageDiv.innerHTML = `
+                <div class="ai-message">
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        <div class="message-text markdown-content" id="aiMessageContent-${Date.now()}"></div>
+                        <div class="message-time">${getCurrentTime()}</div>
+                    </div>
+                </div>
+            `;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            return messageDiv.querySelector('[id^="aiMessageContent-"]');
+        }
+
+        function disableForm() {
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const buttonText = sendButton.querySelector('.button-text');
+            const buttonLoading = sendButton.querySelector('.button-loading');
+
+            // Disable form elements
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+            messageInput.blur();
+
+            // Show loading state
+            buttonText.style.display = 'none';
+            buttonLoading.style.display = 'flex';
+        }
+
+        function enableForm() {
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const buttonText = sendButton.querySelector('.button-text');
+            const buttonLoading = sendButton.querySelector('.button-loading');
+
+            // Enable form elements
+            messageInput.disabled = false;
+            sendButton.disabled = false;
+
+            // Hide loading state
+            buttonText.style.display = 'flex';
+            buttonLoading.style.display = 'none';
+
+            // Focus back on input
+            messageInput.focus();
+        }
+
+        function sendMessage(message) {
+            // Add user message
+            addUserMessage();
+
+            // Disable form
+            disableForm();
+
+            // Create AI message container
+            const aiContentDiv = addAiMessage();
+            aiContentDiv.classList.add('streaming');
+
+            // Start streaming
+            const eventSource = new EventSource(`/demo/chat/stream?message=${encodeURIComponent(message)}`);
+
+            let isCompleted = false;
+
+            eventSource.addEventListener('chunk', function (event) {
+                if (event.data && !isCompleted) {
+                    // Display the HTML content directly
+                    aiContentDiv.innerHTML = event.data;
+
+                    // Trigger syntax highlighting
+                    if (typeof Prism !== 'undefined') {
+                        Prism.highlightAll();
+                    }
+                    // Auto-scroll to bottom
+                    const chatMessages = document.getElementById('chatMessages');
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            });
+
+            eventSource.addEventListener('error', function (event) {
+                console.error('Streaming error event:', event);
+                if (!isCompleted) {
+                    aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: ${event.data || 'Failed to get response from AI'}</span>`;
+                    cleanup();
+                }
+            });
+
+            eventSource.addEventListener('error', function (event) {
+                console.error('SSE error event:', event);
+                if (!isCompleted) {
+                    if (event.data) {
+                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">${event.data}</span>`;
+                    } else {
+                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: Connection failed</span>`;
+                    }
+                    cleanup();
+                }
+            });
+
+            eventSource.onopen = function (event) {
+                console.log('Streaming connection opened');
+            };
+
+            eventSource.onerror = function (event) {
+                console.log('Streaming connection error or completed:', event);
+                if (!isCompleted) {
+                    // Only show error if we haven't received any data yet
+                    if (aiContentDiv.innerHTML.trim() === '' || aiContentDiv.innerHTML.includes('streaming')) {
+                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: Connection failed or timed out</span>`;
+                    }
+                    cleanup();
+                }
+            };
+
+            eventSource.onmessage = function (event) {
+                // Handle default message events
+                if (event.data && !isCompleted) {
+                    aiContentDiv.innerHTML = event.data;
+                    if (typeof Prism !== 'undefined') {
+                        Prism.highlightAll();
+                    }
+                    const chatMessages = document.getElementById('chatMessages');
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            };
+
+            function cleanup() {
+                if (!isCompleted) {
+                    isCompleted = true;
+                    aiContentDiv.classList.remove('streaming');
+                    eventSource.close();
+                    enableForm();
+                    console.log('Streaming cleanup completed');
+                }
+            }
+
+            // Auto-cleanup after timeout
+            setTimeout(() => {
+                if (!isCompleted) {
+                    console.log('Auto cleanup due to timeout');
+                    cleanup();
+                }
+            }, 60000); // 60 seconds timeout
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+            const chatForm = document.getElementById('chatForm');
+
+            // Focus on input when page loads
+            messageInput.focus();
+
+            // Handle form submission
+            chatForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                const message = messageInput.value.trim();
+                if (message && !sendButton.disabled) {
+                    sendMessage(message);
+                    messageInput.value = '';
+                }
+            });
+
+            // Handle Enter key submission
+            messageInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    if (messageInput.value.trim() !== '' && !sendButton.disabled) {
+                        // Trigger the form submission
+                        chatForm.dispatchEvent(new Event('submit'));
+                    }
+                }
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <div class="chat-container">
+        <h1>💬 AI Chat Assistant</h1>
+
+        <!-- Chat Messages Container -->
+        <div id="chatMessages" class="chat-messages">
+            <!-- Chat messages will be appended here -->
+        </div>
+
+        <!-- Chat Form -->
+        <form id="chatForm">
+            <div class="chat-input-container">
+                <input type="text" name="message" class="message-input" placeholder="Type your message here..." required
+                    autocomplete="off" id="messageInput">
+                <button type="submit" class="send-button" id="sendButton">
+                    <span class="button-text">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
+                        </svg>
+                    </span>
+                    <span class="button-loading" style="display: none;">
+                        <svg class="spinner" viewBox="0 0 50 50">
+                            <circle class="path" cx="25" cy="25" r="20" fill="none" stroke="currentColor"
+                                stroke-width="5" stroke-linecap="round"></circle>
+                        </svg>
+                    </span>
+                </button>
+            </div>
+        </form>
+    </div>
+</body>
+
+</html>
