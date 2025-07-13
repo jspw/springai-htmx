@@ -86,6 +86,7 @@ public class ChatController {
                     ChatClient chatClient = chatClientBuilder.build();
 
                     System.out.println("Chat client created, attempting to stream...");
+                    System.out.println("About to call .stream() method...");
 
                     Flux<String> responseFlux = chatClient
                             .prompt(message)
@@ -99,13 +100,9 @@ public class ChatController {
                     responseFlux.subscribe(
                             chunk -> {
                                 try {
-                                    System.out.println("Received streaming chunk: " + chunk);
                                     fullResponse.append(chunk);
-
                                     // Convert full accumulated response to HTML
                                     String htmlContent = markdownService.convertMarkdownToHtml(fullResponse.toString());
-
-                                    System.out.println("Sending chunk to frontend...");
                                     // Send the full HTML response so far
                                     emitter.send(SseEmitter.event()
                                             .name("chunk")
