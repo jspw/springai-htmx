@@ -121,6 +121,7 @@
             let isCompleted = false;
 
             eventSource.addEventListener('chunk', function (event) {
+                console.log('Received chunk event:', event.data?.substring(0, 100) + '...');
                 if (event.data && !isCompleted) {
                     // Display the HTML content directly
                     aiContentDiv.innerHTML = event.data;
@@ -135,42 +136,21 @@
                 }
             });
 
-            eventSource.addEventListener('error', function (event) {
-                console.error('Streaming error event:', event);
-                if (!isCompleted) {
-                    aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: ${event.data || 'Failed to get response from AI'}</span>`;
-                    cleanup();
-                }
-            });
-
-            eventSource.addEventListener('error', function (event) {
-                console.error('SSE error event:', event);
-                if (!isCompleted) {
-                    if (event.data) {
-                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">${event.data}</span>`;
-                    } else {
-                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: Connection failed</span>`;
-                    }
-                    cleanup();
-                }
-            });
-
             eventSource.onopen = function (event) {
                 console.log('Streaming connection opened');
             };
 
             eventSource.onerror = function (event) {
-                console.log('Streaming connection error or completed:', event);
+                console.log('SSE connection ended:', event);
+
                 if (!isCompleted) {
-                    // Only show error if we haven't received any data yet
-                    if (aiContentDiv.innerHTML.trim() === '' || aiContentDiv.innerHTML.includes('streaming')) {
-                        aiContentDiv.innerHTML = `<span style="color: #e53e3e;">Error: Connection failed or timed out</span>`;
-                    }
+                    console.log('Stream completed, cleaning up without error');
                     cleanup();
                 }
             };
 
             eventSource.onmessage = function (event) {
+                console.log('Received default message event:', event.data?.substring(0, 100) + '...');
                 // Handle default message events
                 if (event.data && !isCompleted) {
                     aiContentDiv.innerHTML = event.data;
