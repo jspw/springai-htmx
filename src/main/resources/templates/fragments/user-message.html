@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<body>
+    <!-- User Message Fragment -->
+    <div class="user-message-container">
+        <div class="user-message">
+            <div class="message-avatar">👤</div>
+            <div class="message-content">
+                <div class="message-text" th:text="${message}"></div>
+                <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

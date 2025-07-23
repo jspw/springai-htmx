@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<body>
+    <!-- Combined Chat Response Fragment -->
+    <div th:fragment="chat-response">
+        <!-- User Message -->
+        <div class="user-message-container">
+            <div class="user-message">
+                <div class="message-avatar">👤</div>
+                <div class="message-content">
+                    <div class="message-text" th:text="${message}"></div>
+                    <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Response -->
+        <div class="ai-message-container">
+            <div class="ai-message">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="message-text markdown-content" th:utext="${htmlResponse}"></div>
+                    <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

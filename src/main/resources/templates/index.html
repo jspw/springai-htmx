@@ -18,196 +18,233 @@
     <!-- External CSS -->
     <link rel="stylesheet" th:href="@{/css/style.css}">
 
-    <!-- Custom JavaScript for enhanced form behavior -->
+    <!-- HTMX Extensions for SSE -->
+    <script src="https://unpkg.com/htmx.org/dist/ext/sse.js"></script>
+    <!-- Minimal JavaScript for syntax highlighting and form control -->
     <script>
-        function addUserMessage() {
-            const messageInput = document.getElementById('messageInput');
-            const chatMessages = document.getElementById('chatMessages');
-            const userMessage = messageInput.value.trim();
+        let isStreaming = false;
+        let currentEventSource = null; // Track current SSE connection
 
-            if (userMessage) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'user-message-container';
-                messageDiv.innerHTML = `
-                    <div class="user-message">
-                        <div class="message-avatar">👤</div>
-                        <div class="message-content">
-                            <div class="message-text">${escapeHtml(userMessage)}</div>
-                            <div class="message-time">${getCurrentTime()}</div>
-                        </div>
-                    </div>
-                `;
-                chatMessages.appendChild(messageDiv);
+        // Form control functions
+        function disableForm() {
+            console.log('Disabling form - streaming started');
+            isStreaming = true;
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+
+            if (messageInput) messageInput.disabled = true;
+            if (sendButton) sendButton.disabled = true;
+        }
+
+        function enableForm() {
+            console.log('Enabling form - streaming completed');
+            isStreaming = false;
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
+
+            if (messageInput) {
+                messageInput.disabled = false;
+                messageInput.focus();
+            }
+            if (sendButton) sendButton.disabled = false;
+        }
+
+        function enableFormAfterDelay() {
+            // With manual SSE, we don't enable form here - the SSE handlers will do it
+            console.log('Form will be enabled by SSE completion handler');
+        }
+
+        // Function to start SSE connection for streaming elements
+        function startSSEForNewElements() {
+            // Close any existing connection first
+            if (currentEventSource && currentEventSource.readyState === EventSource.OPEN) {
+                console.log('Closing previous SSE connection');
+                currentEventSource.close();
+            }
+
+            // Find the newest streaming element (just added)
+            const streamingElements = document.querySelectorAll('.streaming[data-stream-url]');
+            if (streamingElements.length === 0) return;
+
+            // Get the last (newest) streaming element
+            const responseElement = streamingElements[streamingElements.length - 1];
+            const streamUrl = responseElement.getAttribute('data-stream-url');
+
+            if (!streamUrl) {
+                console.error('No stream URL found');
+                return;
+            }
+
+            console.log('Starting SSE connection to:', streamUrl);
+
+            currentEventSource = new EventSource(streamUrl);
+            let hasReceivedData = false;
+
+            currentEventSource.addEventListener('message', function (event) {
+                console.log('SSE message received for:', responseElement.id);
+                hasReceivedData = true;
+
+                // Remove typing indicator on first message
+                const typingIndicator = responseElement.querySelector('.typing-indicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+
+                // Update content
+                responseElement.innerHTML = event.data;
+
+                // Trigger syntax highlighting
+                if (typeof Prism !== 'undefined') {
+                    Prism.highlightAll();
+                }
+
+                // Scroll to bottom
+                scrollToBottom();
+            });
+
+            currentEventSource.addEventListener('complete', function (event) {
+                console.log('SSE completion signal received');
+                currentEventSource.close();
+                currentEventSource = null;
+                responseElement.classList.remove('streaming');
+
+                // Re-enable form
+                enableForm();
+            });
+
+            // Listen for server error messages
+            currentEventSource.addEventListener('error-message', function (event) {
+                console.error('Server error message received:', event.data);
+                hasReceivedData = true;
+
+                // Remove typing indicator
+                const typingIndicator = responseElement.querySelector('.typing-indicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+
+                // Display the error message from server
+                responseElement.innerHTML = event.data;
+                responseElement.classList.remove('streaming');
+
+                // Close connection and re-enable form
+                currentEventSource.close();
+                currentEventSource = null;
+                enableForm();
+            });
+
+            currentEventSource.addEventListener('error', function (event) {
+                console.error('SSE error occurred:', event);
+                console.error('SSE readyState:', currentEventSource.readyState);
+                console.error('Event details:', {
+                    type: event.type,
+                    target: event.target,
+                    eventPhase: event.eventPhase
+                });
+
+                currentEventSource.close();
+                currentEventSource = null;
+                responseElement.classList.remove('streaming');
+
+                let errorMessage = 'Connection error occurred';
+
+                // Try to provide more specific error information
+                if (event.target && event.target.readyState === EventSource.CLOSED) {
+                    errorMessage = 'Connection was closed unexpectedly';
+                } else if (event.target && event.target.readyState === EventSource.CONNECTING) {
+                    errorMessage = 'Failed to establish connection to server';
+                }
+
+                if (!hasReceivedData) {
+                    responseElement.innerHTML = `<div class="error-text">${errorMessage}. Please try again.</div>`;
+                }
+
+                // Re-enable form
+                enableForm();
+            });
+
+            // Cleanup after timeout
+            setTimeout(function () {
+                if (currentEventSource && currentEventSource.readyState === EventSource.OPEN) {
+                    console.log('SSE timeout - closing connection');
+                    currentEventSource.close();
+                    currentEventSource = null;
+                    responseElement.classList.remove('streaming');
+
+                    if (!hasReceivedData) {
+                        responseElement.innerHTML = '<div class="error-text">Request timeout</div>';
+                    }
+
+                    enableForm();
+                }
+            }, 60000); // 60 second timeout
+        }
+
+        // Auto-scroll chat messages to bottom
+        function scrollToBottom() {
+            const chatMessages = document.getElementById('chatMessages');
+            if (chatMessages) {
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        // Auto-resize textarea
+        function autoResizeTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
         }
 
-        function getCurrentTime() {
-            return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        }
-
-        function addAiMessage() {
-            const chatMessages = document.getElementById('chatMessages');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'ai-message-container';
-            messageDiv.innerHTML = `
-                <div class="ai-message">
-                    <div class="message-avatar">🤖</div>
-                    <div class="message-content">
-                        <div class="message-text markdown-content" id="aiMessageContent-${Date.now()}"></div>
-                        <div class="message-time">${getCurrentTime()}</div>
-                    </div>
-                </div>
-            `;
-            chatMessages.appendChild(messageDiv);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-            return messageDiv.querySelector('[id^="aiMessageContent-"]');
-        }
-
-        function disableForm() {
-            const messageInput = document.getElementById('messageInput');
-            const sendButton = document.getElementById('sendButton');
-            const buttonText = sendButton.querySelector('.button-text');
-            const buttonLoading = sendButton.querySelector('.button-loading');
-
-            // Disable form elements
-            messageInput.disabled = true;
-            sendButton.disabled = true;
-            messageInput.blur();
-
-            // Show loading state
-            buttonText.style.display = 'none';
-            buttonLoading.style.display = 'flex';
-        }
-
-        function enableForm() {
-            const messageInput = document.getElementById('messageInput');
-            const sendButton = document.getElementById('sendButton');
-            const buttonText = sendButton.querySelector('.button-text');
-            const buttonLoading = sendButton.querySelector('.button-loading');
-
-            // Enable form elements
-            messageInput.disabled = false;
-            sendButton.disabled = false;
-
-            // Hide loading state
-            buttonText.style.display = 'flex';
-            buttonLoading.style.display = 'none';
-
-            // Focus back on input
-            messageInput.focus();
-        }
-
-        function sendMessage(message) {
-            // Add user message
-            addUserMessage();
-
-            // Disable form
-            disableForm();
-
-            // Create AI message container
-            const aiContentDiv = addAiMessage();
-            aiContentDiv.classList.add('streaming');
-
-            // Start streaming
-            const eventSource = new EventSource(`/demo/chat/stream?message=${encodeURIComponent(message)}`);
-
-            let isCompleted = false;
-
-            eventSource.addEventListener('chunk', function (event) {
-                console.log('Received chunk event:', event.data?.substring(0, 100) + '...');
-                if (event.data && !isCompleted) {
-                    // Display the HTML content directly
-                    aiContentDiv.innerHTML = event.data;
-
-                    // Trigger syntax highlighting
-                    if (typeof Prism !== 'undefined') {
-                        Prism.highlightAll();
-                    }
-                    // Auto-scroll to bottom
-                    const chatMessages = document.getElementById('chatMessages');
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                }
-            });
-
-            eventSource.onopen = function (event) {
-                console.log('Streaming connection opened');
-            };
-
-            eventSource.onerror = function (event) {
-                console.log('SSE connection ended:', event);
-
-                if (!isCompleted) {
-                    console.log('Stream completed, cleaning up without error');
-                    cleanup();
-                }
-            };
-
-            eventSource.onmessage = function (event) {
-                console.log('Received default message event:', event.data?.substring(0, 100) + '...');
-                // Handle default message events
-                if (event.data && !isCompleted) {
-                    aiContentDiv.innerHTML = event.data;
-                    if (typeof Prism !== 'undefined') {
-                        Prism.highlightAll();
-                    }
-                    const chatMessages = document.getElementById('chatMessages');
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                }
-            };
-
-            function cleanup() {
-                if (!isCompleted) {
-                    isCompleted = true;
-                    aiContentDiv.classList.remove('streaming');
-                    eventSource.close();
-                    enableForm();
-                    console.log('Streaming cleanup completed');
-                }
-            }
-
-            // Auto-cleanup after timeout
-            setTimeout(() => {
-                if (!isCompleted) {
-                    console.log('Auto cleanup due to timeout');
-                    cleanup();
-                }
-            }, 60000); // 60 seconds timeout
-        }
-
+        // Initialize everything when DOM is ready
         document.addEventListener('DOMContentLoaded', function () {
             const messageInput = document.getElementById('messageInput');
-            const sendButton = document.getElementById('sendButton');
             const chatForm = document.getElementById('chatForm');
 
-            // Focus on input when page loads
-            messageInput.focus();
+            // Focus input field
+            if (messageInput) {
+                messageInput.focus();
 
-            // Handle form submission
-            chatForm.addEventListener('submit', function (event) {
-                event.preventDefault();
-                const message = messageInput.value.trim();
-                if (message && !sendButton.disabled) {
-                    sendMessage(message);
-                    messageInput.value = '';
-                }
-            });
+                // Add auto-resize functionality for textarea
+                messageInput.addEventListener('input', function () {
+                    autoResizeTextarea(this);
+                });
 
-            // Handle Enter key submission
-            messageInput.addEventListener('keydown', function (event) {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    if (messageInput.value.trim() !== '' && !sendButton.disabled) {
-                        // Trigger the form submission
-                        chatForm.dispatchEvent(new Event('submit'));
+                // Handle Enter key for form submission (Shift+Enter for new line)
+                messageInput.addEventListener('keydown', function (event) {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        if (!isStreaming && this.value.trim()) {
+                            chatForm.dispatchEvent(new Event('submit', { cancelable: true }));
+                        }
                     }
+                });
+            }
+
+            // Add form validation
+            if (chatForm) {
+                chatForm.addEventListener('submit', function (event) {
+                    if (isStreaming) {
+                        console.log('Preventing submission - already streaming');
+                        event.preventDefault();
+                        return false;
+                    }
+
+                    const message = messageInput ? messageInput.value.trim() : '';
+                    if (!message) {
+                        event.preventDefault();
+                        return false;
+                    }
+                });
+            }
+
+            // Handle HTMX events
+            document.body.addEventListener('htmx:afterSwap', function (evt) {
+                if (typeof Prism !== 'undefined') {
+                    Prism.highlightAll();
                 }
+                scrollToBottom();
+
+                // Start SSE for any new streaming elements
+                startSSEForNewElements();
             });
         });
     </script>
@@ -215,18 +252,22 @@
 
 <body>
     <div class="chat-container">
-        <h1>💬 AI Chat Assistant</h1>
+        <h1>💬 SpringAI x HTMX Chat Assistant</h1>
 
         <!-- Chat Messages Container -->
         <div id="chatMessages" class="chat-messages">
             <!-- Chat messages will be appended here -->
         </div>
 
-        <!-- Chat Form -->
-        <form id="chatForm">
+        <!-- Chat Form with HTMX -->
+        <form id="chatForm" th:hx-post="@{/chat}" hx-target="#chatMessages" hx-swap="beforeend"
+            hx-indicator="#sendButton .button-loading" hx-on::before-request="disableForm()"
+            hx-on::after-request="this.reset(); enableFormAfterDelay()">
+
             <div class="chat-input-container">
-                <input type="text" name="message" class="message-input" placeholder="Type your message here..." required
-                    autocomplete="off" id="messageInput">
+                <textarea name="message" class="message-input" placeholder="Type your message here..." required
+                    autocomplete="off" id="messageInput" rows="1"></textarea>
+
                 <button type="submit" class="send-button" id="sendButton">
                     <span class="button-text">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -235,7 +276,7 @@
                             <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
                         </svg>
                     </span>
-                    <span class="button-loading" style="display: none;">
+                    <span class="button-loading htmx-indicator">
                         <svg class="spinner" viewBox="0 0 50 50">
                             <circle class="path" cx="25" cy="25" r="20" fill="none" stroke="currentColor"
                                 stroke-width="5" stroke-linecap="round"></circle>

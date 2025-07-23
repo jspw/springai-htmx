@@ -13,12 +13,15 @@
         </div>
     </div>
 
-    <!-- Error Message -->
-    <div th:fragment="chat-error" class="ai-message-container error">
+    <!-- AI Response Container with Manual Streaming -->
+    <div class="ai-message-container">
         <div class="ai-message">
-            <div class="message-avatar">⚠️</div>
+            <div class="message-avatar">🤖</div>
             <div class="message-content">
-                <div class="message-text error-text" th:text="${error}"></div>
+                <div class="message-text markdown-content streaming" th:attr="data-stream-url=${streamUrl}"
+                    th:id="'ai-response-' + ${#temporals.format(#temporals.createNow(), 'HHmmssSSS')}">
+                    <span class="typing-indicator">Thinking...</span>
+                </div>
                 <div class="message-time" th:text="${#temporals.format(#temporals.createNow(), 'HH:mm')}"></div>
             </div>
         </div>

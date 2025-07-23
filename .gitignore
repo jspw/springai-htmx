@@ -39,4 +39,4 @@ target/
 
 src/main/resources/*.properties
 mvnw*
-
+.DS_Store
